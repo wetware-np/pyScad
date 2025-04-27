@@ -2,106 +2,101 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>OpenSCAD-in-Browser</title>
-
-  <!-- Pyodide -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
-
-  <!-- Monaco Editor Loader -->
-  <script src="https://unpkg.com/monaco-editor@0.38.0/min/vs/loader.js"></script>
-
+  <title>pyScad</title>
   <style>
-    body { margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
-    #editor { height: 40vh; }
-    #canvas { flex-grow: 1; }
+    body { margin: 0; overflow: hidden; }
+    #editor { position: absolute; left: 0; width: 40%; height: 100%; }
+    #viewer { position: absolute; left: 40%; width: 60%; height: 100%; }
   </style>
 </head>
-
 <body>
-  <div id="editor"></div>
-  <canvas id="canvas"></canvas>
 
-  <script>
-    async function main() {
-      // Load Pyodide first
-      const pyodide = await loadPyodide();
+<div id="editor"></div>
+<canvas id="viewer"></canvas>
 
-      // Configure Monaco
-      require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.38.0/min/vs' } });
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs/loader.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
-      require(['vs/editor/editor.main'], function(monaco) {
-        const editor = monaco.editor.create(document.getElementById('editor'), {
-          value: `translate([0,0,0])
-cube(5);`,
-          language: 'python',
-          theme: 'vs-dark'
-        });
+<script>
+// Basic Three.js scene
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+camera.position.z = 20;
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById('viewer')});
+renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
 
-        // Load Three.js
-        const threeScript = document.createElement('script');
-        threeScript.src = 'https://unpkg.com/three@0.150.1/build/three.min.js';
-        threeScript.onload = () => {
-          // Setup Three.js
-          const scene = new THREE.Scene();
-          const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-          const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
-          renderer.setSize(window.innerWidth, window.innerHeight * 0.6);
-          camera.position.z = 30;
+// Setup Pyodide
+async function main() {
+    self.pyodide = await loadPyodide();
+    await pyodide.loadPackage(["micropip"]);
+    await pyodide.runPythonAsync(`
+def print_hi():
+    print("Pyodide ready")
+`);
+    console.log("Pyodide ready");
 
-          const objects = [];
+    // Insert fake scad functions
+    await pyodide.runPythonAsync(await (await fetch('pyscad.py')).text());
+}
+main();
 
-          function animate() {
-            requestAnimationFrame(animate);
-            renderer.render(scene, camera);
-          }
-          animate();
+// Setup Monaco editor
+require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs' }});
+require(['vs/editor/editor.main'], function() {
+    const editor = monaco.editor.create(document.getElementById('editor'), {
+        value: 'cube(5)\ntranslate([10,0,0])\nsphere(3)',
+        language: 'python',
+        theme: 'vs-dark'
+    });
 
-          function clearScene() {
-            while (scene.children.length > 0) {
-              scene.remove(scene.children[0]);
-            }
-          }
+    editor.onDidChangeModelContent(async () => {
+        const code = editor.getValue();
+        clearScene();
+        try {
+            await pyodide.runPythonAsync(code);
+        } catch (e) {
+            console.error(e);
+        }
+    });
+});
 
-          function addCube(size) {
-            const geometry = new THREE.BoxGeometry(size, size, size);
-            const material = new THREE.MeshNormalMaterial();
-            const cube = new THREE.Mesh(geometry, material);
-            scene.add(cube);
-            objects.push(cube);
-          }
-
-          // Make Python functions
-          pyodide.runPythonAsync(`
-import js
-
-def cube(size):
-    js.addCube(size)
-def translate(vec):
-    pass  # Placeholder
-def rotate(vec):
-    pass  # Placeholder
-def scale(vec):
-    pass  # Placeholder
-          `);
-
-          // Expose JS functions to Pyodide
-          window.addCube = addCube;
-
-          editor.onDidChangeModelContent(async () => {
-            clearScene();
-            const code = editor.getValue();
-            try {
-              await pyodide.runPythonAsync(code);
-            } catch (e) {
-              console.log('Error running Python:', e);
-            }
-          });
-        };
-        document.body.appendChild(threeScript);
-      });
+// Helper to clear the scene
+function clearScene() {
+    while (scene.children.length > 0) {
+        scene.remove(scene.children[0]);
     }
-    main();
-  </script>
+}
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
+animate();
+
+// These are functions we will call from Python
+function addCube(size) {
+    const geometry = new THREE.BoxGeometry(size, size, size);
+    const material = new THREE.MeshNormalMaterial();
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+}
+
+function addSphere(radius) {
+    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+    const material = new THREE.MeshNormalMaterial();
+    const sphere = new THREE.Mesh(geometry, material);
+    scene.add(sphere);
+}
+
+function setPosition(x, y, z) {
+    if (scene.children.length > 0) {
+        const obj = scene.children[scene.children.length - 1];
+        obj.position.set(x, y, z);
+    }
+}
+</script>
+
 </body>
 </html>
-
