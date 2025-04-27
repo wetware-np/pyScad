@@ -2,156 +2,138 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>pyScad - Easy Version</title>
+  <title>Simple pyScad (3D Modeler)</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    #editor { position: absolute; left: 0; width: 40%; height: 100%; }
-    #viewer { position: absolute; left: 40%; width: 60%; height: 100%; }
+    #editor { position: absolute; top: 0; left: 0; width: 40%; height: 100%; }
+    #canvas { position: absolute; top: 0; left: 40%; width: 60%; height: 100%; background: #222; }
   </style>
 </head>
 <body>
+  <div id="editor"></div>
+  <div id="canvas"></div>
 
-<div id="editor"></div>
-<canvas id="viewer"></canvas>
+  <!-- Monaco Editor -->
+  <script src="https://unpkg.com/monaco-editor@0.34.1/min/vs/loader.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three-csgmesh@1.0.2/build/three-csgmesh.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs/loader.js"></script>
-<script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+  <!-- Three.js -->
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/controls/OrbitControls.js';
+    import { CSG } from 'https://cdn.jsdelivr.net/npm/three-js-csg@1.0.5/dist/three-js-csg.esm.js';
 
-<script>
-// Scene setup
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-camera.position.z = 20;
-const renderer = new THREE.WebGLRenderer({canvas: document.getElementById('viewer')});
-renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
+    let scene, camera, renderer, controls;
+    let objects = [];
 
-// Objects stack
-let objects = [];
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x222222);
 
-function clearScene() {
-    while (scene.children.length > 0) {
-        scene.remove(scene.children[0]);
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth * 0.6 / window.innerHeight, 0.1, 1000);
+      camera.position.set(5,5,5);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
+      document.getElementById('canvas').appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+
+      animate();
     }
-    objects = [];
-}
 
-// Animation
-function animate() {
-    requestAnimationFrame(animate);
-    renderer.render(scene, camera);
-}
-animate();
-
-// Helpers for shapes
-function addCube(size) {
-    const geometry = new THREE.BoxGeometry(size, size, size);
-    const material = new THREE.MeshNormalMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-    objects.push(mesh);
-}
-
-function addSphere(radius) {
-    const geometry = new THREE.SphereGeometry(radius, 32, 32);
-    const material = new THREE.MeshNormalMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-    objects.push(mesh);
-}
-
-function addCylinder(radius, height) {
-    const geometry = new THREE.CylinderGeometry(radius, radius, height, 32);
-    const material = new THREE.MeshNormalMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-    objects.push(mesh);
-}
-
-function setPosition(x, y, z) {
-    if (objects.length > 0) {
-        const obj = objects[objects.length - 1];
-        obj.position.set(x, y, z);
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
     }
-}
 
-function setRotation(x, y, z) {
-    if (objects.length > 0) {
-        const obj = objects[objects.length - 1];
-        obj.rotation.set(x * Math.PI/180, y * Math.PI/180, z * Math.PI/180);
+    function clearScene() {
+      for (let obj of objects) {
+        scene.remove(obj);
+      }
+      objects = [];
     }
-}
 
-function setScale(x, y, z) {
-    if (objects.length > 0) {
-        const obj = objects[objects.length - 1];
-        obj.scale.set(x, y, z);
+    function addCylinder(r=1, h=2, color=0x00ff00) {
+      const geo = new THREE.CylinderGeometry(r, r, h, 32);
+      const mat = new THREE.MeshStandardMaterial({ color });
+      const mesh = new THREE.Mesh(geo, mat);
+      scene.add(mesh);
+      objects.push(mesh);
+      return mesh;
     }
-}
 
-function setColor(r, g, b) {
-    if (objects.length > 0) {
-        const obj = objects[objects.length - 1];
-        obj.material = new THREE.MeshStandardMaterial({ color: new THREE.Color(r, g, b) });
+    function rotate(obj, x=0, y=0, z=0) {
+      obj.rotation.set(x, y, z);
     }
-}
 
-function union() {
-    if (objects.length < 2) return;
-    const a = objects.pop();
-    const b = objects.pop();
-    const c = THREE.CSG.union(a, b);
-    scene.add(c);
-    objects.push(c);
-}
+    function scale(obj, x=1, y=1, z=1) {
+      obj.scale.set(x, y, z);
+    }
 
-function difference() {
-    if (objects.length < 2) return;
-    const a = objects.pop();
-    const b = objects.pop();
-    const c = THREE.CSG.subtract(b, a);
-    scene.add(c);
-    objects.push(c);
-}
+    function union(a, b) {
+      return CSG.union(a, b);
+    }
 
-function intersection() {
-    if (objects.length < 2) return;
-    const a = objects.pop();
-    const b = objects.pop();
-    const c = THREE.CSG.intersect(a, b);
-    scene.add(c);
-    objects.push(c);
-}
+    function difference(a, b) {
+      return CSG.subtract(a, b);
+    }
 
-// Pyodide + Monaco
-async function main() {
-    self.pyodide = await loadPyodide();
-    await pyodide.loadPackage(["micropip"]);
-    await pyodide.runPythonAsync(await (await fetch('pyscad.py')).text());
-    console.log("Pyodide ready");
-}
-main();
+    function intersection(a, b) {
+      return CSG.intersect(a, b);
+    }
 
-require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs' }});
-require(['vs/editor/editor.main'], function() {
-    const editor = monaco.editor.create(document.getElementById('editor'), {
-        value: 'translate([0,0,0])\ncube(5)\ntranslate([10,0,0])\nsphere(3)\n',
-        language: 'python',
+    function setColor(obj, color=0xff0000) {
+      obj.material.color.set(color);
+    }
+
+    function addLight() {
+      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(5,10,7);
+      scene.add(ambient, dirLight);
+    }
+
+    init();
+    addLight();
+
+    // Monaco Editor
+    require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.34.1/min/vs' }});
+    require(['vs/editor/editor.main'], function() {
+      const editor = monaco.editor.create(document.getElementById('editor'), {
+        value: `
+// Example script
+clearScene()
+
+let a = addCylinder(1, 2)
+rotate(a, 0, Math.PI/4, 0)
+setColor(a, 0x00ffff)
+
+let b = addCylinder(0.5, 3)
+scale(b, 1, 2, 1)
+setColor(b, 0xff00ff)
+
+let result = difference(a, b)
+clearScene()
+scene.add(result)
+objects.push(result)
+        `.trim(),
+        language: 'javascript',
         theme: 'vs-dark'
-    });
+      });
 
-    editor.onDidChangeModelContent(async () => {
-        const code = editor.getValue();
-        clearScene();
+      editor.onDidChangeModelContent(() => {
         try {
-            await pyodide.runPythonAsync(code);
+          clearScene();
+          eval(editor.getValue());
         } catch (e) {
-            console.error(e);
+          console.error(e);
         }
-    });
-});
-</script>
+      });
 
+      // Initial run
+      eval(editor.getValue());
+    });
+  </script>
 </body>
 </html>
