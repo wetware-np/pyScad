@@ -2,198 +2,195 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Mini OpenSCAD Clone</title>
+  <title>pyScad - Browser OpenSCAD Clone</title>
   <style>
-    body {
-      margin: 0;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
-      font-family: sans-serif;
-    }
-    #editor {
-      width: 40%;
-      height: 100%;
-      border-right: 2px solid #ddd;
-      padding: 10px;
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-    }
-    #code {
-      flex: 1;
-      width: 100%;
-      font-family: monospace;
-      font-size: 14px;
-      padding: 10px;
-      box-sizing: border-box;
-    }
-    #run {
-      margin-top: 10px;
-      padding: 10px;
-      background: #4CAF50;
-      color: white;
-      border: none;
-      cursor: pointer;
-      font-size: 16px;
-    }
-    #viewport {
-      flex: 1;
-      background: #111;
-    }
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #ui { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; z-index: 10; width: 300px; }
+    textarea { width: 100%; height: 300px; }
+    button { margin-top: 10px; width: 100%; }
+    #exportBtn { margin-top: 5px; }
   </style>
 </head>
 <body>
-
-<div id="editor">
-  <textarea id="code" placeholder="Write OpenSCAD code here..."></textarea>
-  <button id="run">Render</button>
-</div>
-<div id="viewport"></div>
-
-<!-- Three.js (from official CDN as module) -->
-<script type="module">
-
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js';
-
-// --- Tokenizer ---
-function tokenize(input) {
-  const tokens = [];
-  const regex = /\s*(=>|{|}|\(|\)|\[|\]|,|;|:=|=|\+|-|\*|\/|[A-Za-z_][A-Za-z0-9_]*|\d+\.?\d*|"[^"]*")\s*/g;
-  let match;
-  while (match = regex.exec(input)) {
-    tokens.push(match[1]);
-  }
-  return tokens;
+  <div id="ui">
+    <textarea id="code">// Example
+cube([10,10,10]);
+translate([20,0,0]) sphere(5);
+union() {
+    cube([5,5,5]);
+    translate([0,5,0]) sphere(2.5);
 }
+    </textarea>
+    <button onclick="runCode()">Run</button>
+    <button id="exportBtn">Export STL</button>
+  </div>
+  <canvas id="canvas"></canvas>
 
-// --- Parser ---
-function parse(tokens) {
-  let pos = 0;
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three-js-csg-es6/build/three-js-csg.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/exporters/STLExporter.js"></script>
 
-  function parseExpression() {
-    let token = tokens[pos++];
-    if (!isNaN(parseFloat(token))) {
-      return { type: 'number', value: parseFloat(token) };
-    } else if (token.match(/^[A-Za-z_][A-Za-z0-9_]*$/)) {
-      return { type: 'identifier', name: token };
+  <script>
+    let scene, camera, renderer, controls, objects = [];
+    
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+      camera.position.set(30,30,30);
+      renderer = new THREE.WebGLRenderer({canvas: document.getElementById('canvas')});
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mousedown', () => mouseDown = true);
+      document.addEventListener('mouseup', () => mouseDown = false);
+
+      animate();
     }
-  }
 
-  function parseArguments() {
-    let args = [];
-    if (tokens[pos] === '(') {
-      pos++; // skip (
-      while (tokens[pos] !== ')') {
-        args.push(parseExpression());
-        if (tokens[pos] === ',') pos++;
+    let isDragging = false, prevX, prevY, mouseDown = false;
+    function onMouseMove(event) {
+      if (mouseDown) {
+        const deltaX = event.clientX - (prevX || event.clientX);
+        const deltaY = event.clientY - (prevY || event.clientY);
+        camera.position.applyAxisAngle(new THREE.Vector3(0,1,0), -deltaX * 0.005);
+        camera.position.applyAxisAngle(new THREE.Vector3(1,0,0), -deltaY * 0.005);
+        camera.lookAt(0,0,0);
+        prevX = event.clientX;
+        prevY = event.clientY;
+      } else {
+        prevX = prevY = null;
       }
-      pos++; // skip )
     }
-    return args;
-  }
 
-  function parseCommand() {
-    let name = tokens[pos++];
-    let args = parseArguments();
-    let children = [];
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
 
-    if (tokens[pos] === '{') {
-      pos++; // skip {
-      while (tokens[pos] !== '}') {
-        children.push(parseCommand());
+    function runCode() {
+      objects.forEach(obj => scene.remove(obj));
+      objects = [];
+      let code = document.getElementById('code').value;
+      parseCode(code);
+    }
+
+    function parseCode(code) {
+      const lines = code.split('\n');
+      let variables = {};
+      let stack = [];
+
+      function applyTransforms(obj, transforms) {
+        transforms.forEach(t => {
+          if (t.type === 'translate') obj.position.set(...t.args);
+          if (t.type === 'rotate') obj.rotation.set(
+            THREE.MathUtils.degToRad(t.args[0]),
+            THREE.MathUtils.degToRad(t.args[1]),
+            THREE.MathUtils.degToRad(t.args[2])
+          );
+          if (t.type === 'scale') obj.scale.set(...t.args);
+        });
       }
-      pos++; // skip }
+
+      let transforms = [];
+
+      lines.forEach(line => {
+        line = line.trim();
+        if (line.startsWith('//') || line.length === 0) return;
+
+        // Variables
+        let varMatch = line.match(/(\w+)\s*=\s*([\d\.]+);/);
+        if (varMatch) {
+          variables[varMatch[1]] = parseFloat(varMatch[2]);
+          return;
+        }
+
+        // Replace variables
+        Object.keys(variables).forEach(v => {
+          line = line.replaceAll(v, variables[v]);
+        });
+
+        if (line.startsWith('translate')) {
+          let args = JSON.parse(line.match(/translate\((.*)\)/)[1]);
+          transforms.push({type: 'translate', args});
+        } else if (line.startsWith('rotate')) {
+          let args = JSON.parse(line.match(/rotate\((.*)\)/)[1]);
+          transforms.push({type: 'rotate', args});
+        } else if (line.startsWith('scale')) {
+          let args = JSON.parse(line.match(/scale\((.*)\)/)[1]);
+          transforms.push({type: 'scale', args});
+        } else if (line.startsWith('union()')) {
+          stack.push({type: 'union', children: []});
+        } else if (line.startsWith('difference()')) {
+          stack.push({type: 'difference', children: []});
+        } else if (line.startsWith('intersection()')) {
+          stack.push({type: 'intersection', children: []});
+        } else if (line.startsWith('cube')) {
+          let size = JSON.parse(line.match(/cube\((.*)\)/)[1]);
+          let geo = new THREE.BoxGeometry(...size);
+          let mat = new THREE.MeshNormalMaterial();
+          let mesh = new THREE.Mesh(geo, mat);
+          applyTransforms(mesh, transforms);
+          transforms = [];
+          if (stack.length > 0) stack[stack.length-1].children.push(mesh);
+          else { scene.add(mesh); objects.push(mesh); }
+        } else if (line.startsWith('sphere')) {
+          let radius = JSON.parse(line.match(/sphere\((.*)\)/)[1]);
+          let geo = new THREE.SphereGeometry(radius, 32, 32);
+          let mat = new THREE.MeshNormalMaterial();
+          let mesh = new THREE.Mesh(geo, mat);
+          applyTransforms(mesh, transforms);
+          transforms = [];
+          if (stack.length > 0) stack[stack.length-1].children.push(mesh);
+          else { scene.add(mesh); objects.push(mesh); }
+        } else if (line.startsWith('cylinder')) {
+          let height = 10, radius = 5;
+          let match = line.match(/cylinder\((.*)\)/);
+          if (match) {
+            let args = JSON.parse(match[1]);
+            radius = args[0];
+            height = args[1];
+          }
+          let geo = new THREE.CylinderGeometry(radius, radius, height, 32);
+          let mat = new THREE.MeshNormalMaterial();
+          let mesh = new THREE.Mesh(geo, mat);
+          applyTransforms(mesh, transforms);
+          transforms = [];
+          if (stack.length > 0) stack[stack.length-1].children.push(mesh);
+          else { scene.add(mesh); objects.push(mesh); }
+        } else if (line === '}') {
+          let node = stack.pop();
+          if (node.children.length < 2) return;
+          let csg = THREE.CSG.fromMesh(node.children[0]);
+          for (let i = 1; i < node.children.length; i++) {
+            if (node.type === 'union') csg = csg.union(THREE.CSG.fromMesh(node.children[i]));
+            if (node.type === 'difference') csg = csg.subtract(THREE.CSG.fromMesh(node.children[i]));
+            if (node.type === 'intersection') csg = csg.intersect(THREE.CSG.fromMesh(node.children[i]));
+          }
+          let mesh = THREE.CSG.toMesh(csg, new THREE.Matrix4());
+          mesh.material = new THREE.MeshNormalMaterial();
+          if (stack.length > 0) stack[stack.length-1].children.push(mesh);
+          else { scene.add(mesh); objects.push(mesh); }
+        }
+      });
     }
 
-    return { type: 'command', name, args, children };
-  }
+    document.getElementById('exportBtn').onclick = function() {
+      const exporter = new THREE.STLExporter();
+      const stlString = exporter.parse(scene);
+      const blob = new Blob([stlString], {type: 'text/plain'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'model.stl';
+      a.click();
+    };
 
-  function parseProgram() {
-    let commands = [];
-    while (pos < tokens.length) {
-      commands.push(parseCommand());
-    }
-    return commands;
-  }
-
-  return parseProgram();
-}
-
-// --- Scene Setup ---
-let scene, camera, renderer;
-
-function init() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222);
-
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth * 0.6 / window.innerHeight, 0.1, 1000);
-  camera.position.set(5,5,5);
-  camera.lookAt(0,0,0);
-
-  renderer = new THREE.WebGLRenderer();
-  renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
-  document.getElementById('viewport').appendChild(renderer.domElement);
-
-  animate();
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
-}
-
-// --- Render Parsed Program ---
-function renderProgram(program) {
-  // Clear previous scene
-  while(scene.children.length > 0){ 
-    scene.remove(scene.children[0]); 
-  }
-
-  program.forEach(cmd => renderCommand(cmd));
-}
-
-function renderCommand(cmd) {
-  if (cmd.name === 'cube') {
-    let size = cmd.args[0]?.value || 1;
-    const geometry = new THREE.BoxGeometry(size, size, size);
-    const material = new THREE.MeshNormalMaterial();
-    const cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
-  }
-  else if (cmd.name === 'sphere') {
-    let r = cmd.args[0]?.value || 1;
-    const geometry = new THREE.SphereGeometry(r, 32, 32);
-    const material = new THREE.MeshNormalMaterial();
-    const sphere = new THREE.Mesh(geometry, material);
-    scene.add(sphere);
-  }
-  else if (cmd.name === 'cylinder') {
-    let h = cmd.args[0]?.value || 1;
-    let r = cmd.args[1]?.value || 0.5;
-    const geometry = new THREE.CylinderGeometry(r, r, h, 32);
-    const material = new THREE.MeshNormalMaterial();
-    const cylinder = new THREE.Mesh(geometry, material);
-    scene.add(cylinder);
-  }
-  // TODO: implement translate, rotate, scale, color, union, difference, etc.
-
-  cmd.children.forEach(child => renderCommand(child));
-}
-
-// --- Run Button ---
-document.getElementById('run').onclick = function() {
-  const code = document.getElementById('code').value;
-  const tokens = tokenize(code);
-  const program = parse(tokens);
-  console.log(program); // Debug
-  renderProgram(program);
-};
-
-// --- Init scene ---
-init();
-
-</script>
-
+    init();
+  </script>
 </body>
 </html>
