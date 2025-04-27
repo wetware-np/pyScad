@@ -1,1 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenSCAD-in-Browser</title>
+
+  <!-- Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+
+  <!-- Monaco Editor Loader -->
+  <script src="https://unpkg.com/monaco-editor@0.38.0/min/vs/loader.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+    #editor { height: 40vh; }
+    #canvas { flex-grow: 1; }
+  </style>
+</head>
+
+<body>
+  <div id="editor"></div>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    async function main() {
+      // Load Pyodide first
+      const pyodide = await loadPyodide();
+
+      // Configure Monaco
+      require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.38.0/min/vs' } });
+
+      require(['vs/editor/editor.main'], function(monaco) {
+        const editor = monaco.editor.create(document.getElementById('editor'), {
+          value: `translate([0,0,0])
+cube(5);`,
+          language: 'python',
+          theme: 'vs-dark'
+        });
+
+        // Load Three.js
+        const threeScript = document.createElement('script');
+        threeScript.src = 'https://unpkg.com/three@0.150.1/build/three.min.js';
+        threeScript.onload = () => {
+          // Setup Three.js
+          const scene = new THREE.Scene();
+          const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+          const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+          renderer.setSize(window.innerWidth, window.innerHeight * 0.6);
+          camera.position.z = 30;
+
+          const objects = [];
+
+          function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+          }
+          animate();
+
+          function clearScene() {
+            while (scene.children.length > 0) {
+              scene.remove(scene.children[0]);
+            }
+          }
+
+          function addCube(size) {
+            const geometry = new THREE.BoxGeometry(size, size, size);
+            const material = new THREE.MeshNormalMaterial();
+            const cube = new THREE.Mesh(geometry, material);
+            scene.add(cube);
+            objects.push(cube);
+          }
+
+          // Make Python functions
+          pyodide.runPythonAsync(`
+import js
+
+def cube(size):
+    js.addCube(size)
+def translate(vec):
+    pass  # Placeholder
+def rotate(vec):
+    pass  # Placeholder
+def scale(vec):
+    pass  # Placeholder
+          `);
+
+          // Expose JS functions to Pyodide
+          window.addCube = addCube;
+
+          editor.onDidChangeModelContent(async () => {
+            clearScene();
+            const code = editor.getValue();
+            try {
+              await pyodide.runPythonAsync(code);
+            } catch (e) {
+              console.log('Error running Python:', e);
+            }
+          });
+        };
+        document.body.appendChild(threeScript);
+      });
+    }
+    main();
+  </script>
+</body>
+</html>
 
