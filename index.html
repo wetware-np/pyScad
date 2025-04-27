@@ -5,10 +5,10 @@
   <title>Mini OpenSCAD JS</title>
   <style>
     body { margin: 0; overflow: hidden; display: flex; flex-direction: row; height: 100vh; }
-    #editor { width: 40%; height: 100vh; background: #111; color: #0f0; font-family: monospace; padding: 10px; }
+    #editor { width: 40%; height: 100vh; background: #111; color: #0f0; font-family: monospace; padding: 10px; overflow: auto; }
     #preview { width: 60%; height: 100vh; background: #222; }
     #controls { position: absolute; top: 10px; right: 10px; z-index: 10; }
-    button { margin: 5px; }
+    button { margin: 5px; padding: 8px 12px; }
   </style>
 </head>
 <body>
@@ -27,11 +27,12 @@ translate([15,0,0]) sphere(5);
   <button onclick="exportSTL()">Export STL</button>
 </div>
 
-<script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import { STLExporter } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/exporters/STLExporter.js';
+<!-- ✅ load Three.js and addons directly -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/exporters/STLExporter.js"></script>
 
+<script>
 let scene, camera, renderer, controls;
 
 function init() {
@@ -41,10 +42,11 @@ function init() {
   renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
   document.getElementById('preview').appendChild(renderer.domElement);
-  controls = new OrbitControls(camera, renderer.domElement);
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
 
   animate();
 }
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -59,12 +61,11 @@ function runCode() {
     parseCode(code);
   } catch (e) {
     console.error(e);
-    alert("Error in parsing!");
+    alert("Error in parsing!\n" + e.message);
   }
 }
 
 function parseCode(code) {
-  // Very simple parser
   const lines = code.split(';');
   for (let line of lines) {
     line = line.trim();
@@ -108,7 +109,7 @@ function parseCode(code) {
 }
 
 function exportSTL() {
-  const exporter = new STLExporter();
+  const exporter = new THREE.STLExporter();
   const result = exporter.parse(scene);
   const blob = new Blob([result], { type: 'text/plain' });
   const link = document.createElement('a');
