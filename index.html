@@ -2,19 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Simple pyScad (3D Modeler)</title>
+  <title>Simple 3D Modeler</title>
   <style>
-    body { margin: 0; overflow: hidden; }
-    #editor { position: absolute; top: 0; left: 0; width: 40%; height: 100%; }
-    #canvas { position: absolute; top: 0; left: 40%; width: 60%; height: 100%; background: #222; }
+    body { margin: 0; overflow: hidden; display: flex; }
+    #sidebar {
+      width: 250px;
+      background: #333;
+      color: white;
+      padding: 10px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      padding: 10px;
+      background: #555;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 5px;
+    }
+    button:hover {
+      background: #777;
+    }
+    #canvas {
+      flex: 1;
+      background: #222;
+    }
   </style>
 </head>
 <body>
-  <div id="editor"></div>
+  <div id="sidebar">
+    <button onclick="addCylinder()">Add Cylinder</button>
+    <button onclick="rotateSelected()">Rotate Selected</button>
+    <button onclick="scaleSelected()">Scale Selected</button>
+    <button onclick="colorSelected()">Color Selected</button>
+    <hr>
+    <button onclick="unionObjects()">Union (A+B)</button>
+    <button onclick="differenceObjects()">Difference (A-B)</button>
+    <button onclick="intersectionObjects()">Intersection (A∩B)</button>
+    <hr>
+    <button onclick="clearScene()">Clear Scene</button>
+  </div>
   <div id="canvas"></div>
-
-  <!-- Monaco Editor -->
-  <script src="https://unpkg.com/monaco-editor@0.34.1/min/vs/loader.js"></script>
 
   <!-- Three.js -->
   <script type="module">
@@ -24,19 +56,25 @@
 
     let scene, camera, renderer, controls;
     let objects = [];
+    let selected = null;
 
     function init() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x222222);
 
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth * 0.6 / window.innerHeight, 0.1, 1000);
-      camera.position.set(5,5,5);
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth * 0.75 / window.innerHeight, 0.1, 1000);
+      camera.position.set(5, 5, 5);
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth * 0.6, window.innerHeight);
+      renderer.setSize(window.innerWidth * 0.75, window.innerHeight);
       document.getElementById('canvas').appendChild(renderer.domElement);
 
       controls = new OrbitControls(camera, renderer.domElement);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(5, 10, 7);
+      scene.add(ambient, dirLight);
 
       animate();
     }
@@ -52,88 +90,74 @@
         scene.remove(obj);
       }
       objects = [];
+      selected = null;
     }
 
-    function addCylinder(r=1, h=2, color=0x00ff00) {
-      const geo = new THREE.CylinderGeometry(r, r, h, 32);
-      const mat = new THREE.MeshStandardMaterial({ color });
+    function addCylinder() {
+      const geo = new THREE.CylinderGeometry(1, 1, 2, 32);
+      const mat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
       const mesh = new THREE.Mesh(geo, mat);
       scene.add(mesh);
       objects.push(mesh);
-      return mesh;
+      selected = mesh;
     }
 
-    function rotate(obj, x=0, y=0, z=0) {
-      obj.rotation.set(x, y, z);
+    function rotateSelected() {
+      if (!selected) return alert("No object selected!");
+      selected.rotation.x += Math.PI / 4;
+      selected.rotation.y += Math.PI / 6;
     }
 
-    function scale(obj, x=1, y=1, z=1) {
-      obj.scale.set(x, y, z);
+    function scaleSelected() {
+      if (!selected) return alert("No object selected!");
+      selected.scale.multiplyScalar(1.2);
     }
 
-    function union(a, b) {
-      return CSG.union(a, b);
+    function colorSelected() {
+      if (!selected) return alert("No object selected!");
+      selected.material.color.set(Math.random() * 0xffffff);
     }
 
-    function difference(a, b) {
-      return CSG.subtract(a, b);
+    function unionObjects() {
+      if (objects.length < 2) return alert("Need at least 2 objects!");
+      const a = objects.pop();
+      const b = objects.pop();
+      const result = CSG.union(a, b);
+      scene.add(result);
+      objects.push(result);
+      selected = result;
     }
 
-    function intersection(a, b) {
-      return CSG.intersect(a, b);
+    function differenceObjects() {
+      if (objects.length < 2) return alert("Need at least 2 objects!");
+      const a = objects.pop();
+      const b = objects.pop();
+      const result = CSG.subtract(b, a); // Important: B - A
+      scene.add(result);
+      objects.push(result);
+      selected = result;
     }
 
-    function setColor(obj, color=0xff0000) {
-      obj.material.color.set(color);
+    function intersectionObjects() {
+      if (objects.length < 2) return alert("Need at least 2 objects!");
+      const a = objects.pop();
+      const b = objects.pop();
+      const result = CSG.intersect(a, b);
+      scene.add(result);
+      objects.push(result);
+      selected = result;
     }
 
-    function addLight() {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-      dirLight.position.set(5,10,7);
-      scene.add(ambient, dirLight);
-    }
+    window.addCylinder = addCylinder;
+    window.rotateSelected = rotateSelected;
+    window.scaleSelected = scaleSelected;
+    window.colorSelected = colorSelected;
+    window.unionObjects = unionObjects;
+    window.differenceObjects = differenceObjects;
+    window.intersectionObjects = intersectionObjects;
+    window.clearScene = clearScene;
 
     init();
-    addLight();
-
-    // Monaco Editor
-    require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.34.1/min/vs' }});
-    require(['vs/editor/editor.main'], function() {
-      const editor = monaco.editor.create(document.getElementById('editor'), {
-        value: `
-// Example script
-clearScene()
-
-let a = addCylinder(1, 2)
-rotate(a, 0, Math.PI/4, 0)
-setColor(a, 0x00ffff)
-
-let b = addCylinder(0.5, 3)
-scale(b, 1, 2, 1)
-setColor(b, 0xff00ff)
-
-let result = difference(a, b)
-clearScene()
-scene.add(result)
-objects.push(result)
-        `.trim(),
-        language: 'javascript',
-        theme: 'vs-dark'
-      });
-
-      editor.onDidChangeModelContent(() => {
-        try {
-          clearScene();
-          eval(editor.getValue());
-        } catch (e) {
-          console.error(e);
-        }
-      });
-
-      // Initial run
-      eval(editor.getValue());
-    });
   </script>
 </body>
 </html>
